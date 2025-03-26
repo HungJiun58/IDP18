@@ -1,9 +1,9 @@
 import streamlit as st
+import cv2
 import os
 import sqlite3
 import hashlib
 from datetime import datetime
-from streamlit_webrtc import webrtc_streamer
 
 # Ensure the folder exists
 if not os.path.exists("captured_images"):
@@ -67,7 +67,8 @@ def login_page():
                 st.session_state.logged_in = True
                 st.session_state.username = username
                 st.session_state.captured_images = load_images(username)  # Load previous images BEFORE capturing
-                st.session_state.camera_active = False  # Track if camera is open
+                st.session_state.latest_frame = None  # Store last frame before capture
+                st.session_state.camera_open = False  # New: Track if camera is open
                 st.rerun()
             else:
                 st.warning("❌ Incorrect username or password!")
@@ -84,21 +85,52 @@ st.title(f"📷 Durian Monitor - Welcome, {st.session_state.username}")
 if "captured_images" not in st.session_state:
     st.session_state.captured_images = load_images(st.session_state.username)
 
+# Camera setup (Replace with your phone's DroidCam IP)
+camera_url = "http://192.168.100.18:4747/video"
+
+# Function to open camera
+def open_camera():
+    return cv2.VideoCapture(camera_url)
+
 # Layout: Open Camera & Capture Buttons
-st.subheader("🎥 Camera Controls")
-col1, col2 = st.columns(2)
+col1, col2 = st.columns([2, 2])
 
 with col1:
-    if st.button("📷 Open Camera"):
-        st.session_state.camera_active = True
+    if st.button("📹 Open Camera"):
+        st.session_state.camera_open = True  # Set flag to open camera
+        st.rerun()
 
 with col2:
     if st.button("📸 Capture Image"):
-        st.warning("Image capture from WebRTC requires extra handling (work in progress).")
+        if st.session_state.camera_open and st.session_state.latest_frame is not None:
+            filename = f"captured_images/{st.session_state.username}_{datetime.now().strftime('%Y%m%d%H%M%S')}.jpg"
+            cv2.imwrite(filename, cv2.cvtColor(st.session_state.latest_frame, cv2.COLOR_RGB2BGR))
 
-# Show livestream only if camera is opened
-if "camera_active" in st.session_state and st.session_state.camera_active:
-    webrtc_streamer(key="camera")
+            # Save to database & update session state
+            save_image(st.session_state.username, filename)
+            st.session_state.captured_images.append(filename)
+
+            st.success(f"✅ Image saved: {filename}")
+        else:
+            st.warning("⚠️ Open the camera first before capturing!")
+
+# If camera is open, show livestream
+if st.session_state.camera_open:
+    st.subheader("📡 Live Camera Feed")
+    video_placeholder = st.empty()
+    
+    camera = open_camera()
+    while True:
+        success, frame = camera.read()
+        if not success:
+            st.warning("❌ Failed to access camera.")
+            break
+
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        st.session_state.latest_frame = frame  # Store latest frame for capturing
+        video_placeholder.image(frame, channels="RGB")
+
+    camera.release()  # Close camera when done
 
 # Display captured images
 st.subheader("📂 Captured Images History")
@@ -115,7 +147,7 @@ if st.session_state.captured_images:
             st.write(f"Quality: (AI Prediction)")
             st.write(f"Location: (To be added)")
 
-            # DELETE BUTTON (FIXED TO WORK PROPERLY)
+            # DELETE BUTTON
             if st.button(f"🗑 Delete {os.path.basename(img_path)}", key=img_path):
                 delete_image(st.session_state.username, img_path)
                 st.session_state.captured_images = load_images(st.session_state.username)  # Refresh images
