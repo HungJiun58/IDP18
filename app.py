@@ -86,7 +86,7 @@ if "captured_images" not in st.session_state:
     st.session_state.captured_images = load_images(st.session_state.username)
 
 # Camera setup (Replace with your phone's DroidCam IP)
-camera_url = "http://192.168.100.18:4747/video"
+camera_url = "http://192.168.100.18:8080/video"
 
 # Function to open camera
 def open_camera():
